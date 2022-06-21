@@ -30,7 +30,7 @@ minimumChordLength = spatial(0.25, MM);
 minimumCircularRadius = spatial(0.1, MM);
 maximumCircularRadius = spatial(500, MM);
 minimumCircularSweep = toRad(0.1);
-maximumCircularSweep = toRad(3600);
+maximumCircularSweep = toRad(14400); // 40 rev.
 allowHelicalMoves = true;
 // allowedCircularPlanes = (1 << PLANE_XY) // only XY plane
 allowedCircularPlanes = (1 << PLANE_XY) | (1 << PLANE_ZX) | (1 << PLANE_YZ); // only XY, ZX, and YZ planes 
@@ -526,16 +526,17 @@ function onCircular(clockwise, cx, cy, cz, x, y, z, feed) {
     if (arcPValue > 0) { // add P parameter
       writeBlock( gMotionModal.format(clockwise ? 2 : 3), xOutput.format(x), yOutput.format(y), zOutput.format(z),
                   iOutput.format(cx - start.x), jOutput.format(cy - start.y), arcPFormat.format(arcPValue), feedOutput.format(feed),
-                  " ; circleCount: " + circleCount);
+                  " ; circleCount: " + circleCount.toFixed(4));
     } else { // omit P0
       writeBlock( gMotionModal.format(clockwise ? 2 : 3), xOutput.format(x), yOutput.format(y), zOutput.format(z),
-                  iOutput.format(cx - start.x), jOutput.format(cy - start.y), feedOutput.format(feed));
+                  iOutput.format(cx - start.x), jOutput.format(cy - start.y), feedOutput.format(feed),
+                  " ; circleCount: " + circleCount.toFixed(4));
     }
     break;
 
   case PLANE_ZX:
     writeBlock(gPlaneModal.format(18));
-    if(xOutput.format(x) == "" && yOutput.format(z) == "") {
+    if(xOutput.format(x) == "" && zOutput.format(z) == "") {
       isFullRot = true;
     } else {
       isFullRot = false;
@@ -546,15 +547,16 @@ function onCircular(clockwise, cx, cy, cz, x, y, z, feed) {
     if (arcPValue > 0) {
       writeBlock( gMotionModal.format(clockwise ? 2 : 3), xOutput.format(x), yOutput.format(y), zOutput.format(z),
                   iOutput.format(cx - start.x), kOutput.format(cz - start.z), arcPFormat.format(arcPValue), feedOutput.format(feed),
-                  " ; circleCount: " + circleCount);
+                  " ; circleCount: " + circleCount.toFixed(4));
     } else {
       writeBlock( gMotionModal.format(clockwise ? 2 : 3), xOutput.format(x), yOutput.format(y), zOutput.format(z),
-                  iOutput.format(cx - start.x), kOutput.format(cz - start.z), feedOutput.format(feed));
+                  iOutput.format(cx - start.x), kOutput.format(cz - start.z), feedOutput.format(feed),
+                  " ; circleCount: " + circleCount.toFixed(4));
     }
     break;
   case PLANE_YZ:
     writeBlock(gPlaneModal.format(19));
-    if(xOutput.format(y) == "" && yOutput.format(z) == "") {
+    if(yOutput.format(y) == "" && zOutput.format(z) == "") {
       isFullRot = true;
     } else {
       isFullRot = false;
@@ -565,10 +567,11 @@ function onCircular(clockwise, cx, cy, cz, x, y, z, feed) {
     if (arcPValue > 0) {
       writeBlock( gMotionModal.format(clockwise ? 2 : 3), xOutput.format(x), yOutput.format(y), zOutput.format(z),
                   jOutput.format(cy - start.y), kOutput.format(cz - start.z), arcPFormat.format(arcPValue), feedOutput.format(feed),
-                  " ; circleCount: " + circleCount);
+                  " ; circleCount: " + circleCount.toFixed(4));
     } else {
       writeBlock( gMotionModal.format(clockwise ? 2 : 3), xOutput.format(x), yOutput.format(y), zOutput.format(z),
-                  jOutput.format(cy - start.y), kOutput.format(cz - start.z), feedOutput.format(feed));
+                  jOutput.format(cy - start.y), kOutput.format(cz - start.z), feedOutput.format(feed),
+                  " ; circleCount: " + circleCount.toFixed(4));
     }
     break;
   default: // unsupported plane
