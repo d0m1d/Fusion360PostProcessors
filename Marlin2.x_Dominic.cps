@@ -13,7 +13,7 @@
 
 description = "PP for Marlin 2.x";
 vendor = "Dominic";
-vendorUrl = "https://www.estlcam.de/";
+// vendorUrl = "";
 longDescription = "Generic milling post mixed from Estlcam & grbl by Dominic.";
 
 legal = "Copyright (C) 2012-2022 by Autodesk, Inc.";
@@ -28,9 +28,9 @@ tolerance = spatial(0.005, MM);
 
 minimumChordLength = spatial(0.25, MM);
 minimumCircularRadius = spatial(0.1, MM);
-maximumCircularRadius = spatial(1000, MM);
-minimumCircularSweep = toRad(0.01);
-maximumCircularSweep = toRad(360);
+maximumCircularRadius = spatial(500, MM);
+minimumCircularSweep = toRad(0.1);
+maximumCircularSweep = toRad(3600);
 allowHelicalMoves = true;
 // allowedCircularPlanes = (1 << PLANE_XY) // only XY plane
 allowedCircularPlanes = (1 << PLANE_XY) | (1 << PLANE_ZX) | (1 << PLANE_YZ); // only XY, ZX, and YZ planes 
@@ -108,15 +108,15 @@ var singleLineCoolant = false; // specifies to output multiple coolant codes in 
 // {id: COOLANT_THROUGH_TOOL, on: [8, 88], off: [9, 89]}
 // {id: COOLANT_THROUGH_TOOL, on: "M88 P3 (myComment)", off: "M89"}
 var coolants = [
-  {id:COOLANT_FLOOD, on:8},
+  {id:COOLANT_FLOOD, on:8, off:9},
   {id:COOLANT_MIST},
   {id:COOLANT_THROUGH_TOOL},
-  {id:COOLANT_AIR, on:8},
+  {id:COOLANT_AIR, on:8, off:9},
   {id:COOLANT_AIR_THROUGH_TOOL},
   {id:COOLANT_SUCTION, on:10, off:11},
   {id:COOLANT_FLOOD_MIST},
   {id:COOLANT_FLOOD_THROUGH_TOOL},
-  {id:COOLANT_OFF, off:9}
+  {id:COOLANT_OFF, off:[9,11]}
 ];
 
 var gFormat = createFormat({prefix:"G", decimals:0});
@@ -126,6 +126,7 @@ var xyzFormat = createFormat({decimals:(unit == MM ? 3 : 4)});
 var feedFormat = createFormat({decimals:(unit == MM ? 0 : 2)});
 var toolFormat = createFormat({decimals:0});
 var rpmFormat = createFormat({decimals:0});
+var arcPFormat = createFormat({prefix:"P", decimals:0}); // Specify additional complete circles. (Requires ARC_P_CIRCLES activated in marlin)
 var secFormat = createFormat({decimals:3, forceDecimal:true}); // seconds - range 0.001-1000
 var taperFormat = createFormat({decimals:1, scale:DEG});
 
@@ -134,8 +135,6 @@ var yOutput = createVariable({prefix:"Y"}, xyzFormat);
 var zOutput = createVariable({prefix:"Z"}, xyzFormat);
 var feedOutput = createVariable({prefix:"F"}, feedFormat);
 var sOutput = createVariable({prefix:"S", force:true}, rpmFormat);
-
-// circular output
 var iOutput = createVariable({prefix:"I"}, xyzFormat);
 var jOutput = createVariable({prefix:"J"}, xyzFormat);
 var kOutput = createVariable({prefix:"K"}, xyzFormat);
@@ -151,9 +150,7 @@ var WARNING_WORK_OFFSET = 0;
 // collected state
 var forceSpindleSpeed = false;
 
-/**
-  Writes the specified block.
-*/
+/** Writes the specified block. */
 function writeBlock() {
   var text = formatWords(arguments);
   if (!text) {
@@ -166,9 +163,7 @@ function formatComment(text) {
   return "(" + String(text).replace(/[()]/g, "") + ")";
 }
 
-/**
-  Output a comment.
-*/
+/** Output a comment. */
 function writeComment(text) {
   writeln(formatComment(text));
 }
@@ -246,17 +241,24 @@ function onComment(message) {
   writeComment(message);
 }
 
-/** Force output of X, Y, and Z. */
+/** Force output of X, Y, Z in the following block. */
 function forceXYZ() {
   xOutput.reset();
   yOutput.reset();
   zOutput.reset();
 }
 
-/** Force output of X, Y, Z, and F on next output. */
-function forceAny() {
+/** Force output of X, Y, Z, F on next output. */
+function forceXYZF() {
   forceXYZ();
   feedOutput.reset();
+}
+
+/** Force output of circular parameters (i,j,k) on next output. */
+function forceCircular() {
+  iOutput.reset();
+  jOutput.reset();
+  kOutput.reset();
 }
 
 function isProbeOperation() {
@@ -380,6 +382,8 @@ function onSection() {
     }
     if (getProperty("splitFile") == "none") {
       if (!getProperty("useM06")) {
+        setCoolant(COOLANT_OFF); // always stop spindle and coolant if "waiting for user" follows
+        onCommand(COMMAND_STOP_SPINDLE);
         writeComment("Insert tool #" + toolFormat.format(tool.number));
         onCommand(COMMAND_STOP);
       } else {
@@ -394,10 +398,19 @@ function onSection() {
 
   forceXYZ();
 
+  { // pure 3D
+    var remaining = currentSection.workPlane;
+    if (!isSameDirection(remaining.forward, new Vector(0, 0, 1))) {
+      error(localize("Tool orientation is not supported."));
+      return;
+    }
+    setRotation(remaining);
+  }
+
   // set coolant after we have positioned at Z
   setCoolant(tool.coolant);
 
-  forceAny();
+  forceXYZF();
 
   var initialPosition = getFramePosition(currentSection.getInitialPosition());
   if (getCurrentPosition().z < initialPosition.z) {
@@ -480,29 +493,6 @@ function onLinear5D(_x, _y, _z, _a, _b, _c, feed) {
   error(localize("Multi-axis motion is not supported."));
 }
 
-function forceCircular(plane) {
-  switch (plane) {
-  case PLANE_XY:
-    xOutput.reset();
-    yOutput.reset();
-    iOutput.reset();
-    jOutput.reset();
-    break;
-  case PLANE_ZX:
-    zOutput.reset();
-    xOutput.reset();
-    kOutput.reset();
-    iOutput.reset();
-    break;
-  case PLANE_YZ:
-    yOutput.reset();
-    zOutput.reset();
-    jOutput.reset();
-    kOutput.reset();
-    break;
-  }
-}
-
 function onCircular(clockwise, cx, cy, cz, x, y, z, feed) {
   // one of X/Y and I/J are required and likewise
 
@@ -512,53 +502,77 @@ function onCircular(clockwise, cx, cy, cz, x, y, z, feed) {
   }
 
   var start = getCurrentPosition();
-  var sweep = toDeg(getCircularSweep())
+  var sweepDeg = Math.abs(toDeg(getCircularSweep()));
+  var circleCount = sweepDeg/360;
+  var isFullRot; // is current circular move modulo 360deg? (within tolerances)
+  var arcPValue; // P value gives additional full circles
+  forceCircular();
+  // writeComment("next circleCount: " + circleCount);
 
-  if (isFullCircle() || (isHelical() && sweep == 360)) {
-    // if (isHelical()) { // OLD: is never entered bec if isHelical Ture then it's not considered as "circle"
-    //   linearize(tolerance);
-    //   return;
-    // }
-    switch (getCircularPlane()) {
-    case PLANE_XY:
-      forceCircular(getCircularPlane());
-      writeBlock(gPlaneModal.format(17));
-      writeBlock(gMotionModal.format(clockwise ? 2 : 3), zOutput.format(z), iOutput.format(cx - start.x), jOutput.format(cy - start.y), feedOutput.format(feed));
-      break;
-    case PLANE_ZX:
-      forceCircular(getCircularPlane());
-      writeBlock(gPlaneModal.format(18));
-      writeBlock(gMotionModal.format(clockwise ? 2 : 3), yOutput.format(y), iOutput.format(cx - start.x), kOutput.format(cz - start.z), feedOutput.format(feed));
-      break;
-    case PLANE_YZ:
-      forceCircular(getCircularPlane());
-      writeBlock(gPlaneModal.format(19));
-      writeBlock(gMotionModal.format(clockwise ? 2 : 3), xOutput.format(x), jOutput.format(cy - start.y), kOutput.format(cz - start.z), feedOutput.format(feed));
-      break;
-    default:
-      linearize(tolerance);
+  switch (getCircularPlane()) {
+  case PLANE_XY:
+    writeBlock(gPlaneModal.format(17)); // select plane
+    // if (!isFullRot) {
+    if(xOutput.format(x) == "" && yOutput.format(y) == "") { // querry "is full rotation": it's a full circle if destination coord. omitted => thus number of decimals also considered
+      // mind: when xOutput.format(x) is called (like in the querry above) it is empty ("") next time for sure => .reset() necessary
+      isFullRot = true; // if full rotation(s): XY coord is omitted bec with full circle the XY coord. stay the same
+    } else {
+      isFullRot = false;
+      xOutput.reset(); // force to write both coordinates if partial circle
+      yOutput.reset();
+    } // third coordinate is then only written if it's changing => helical move
+    
+    arcPValue = (isFullRot ? Math.round(circleCount) - 1 : Math.floor(circleCount)) // P value gives additional full circles!, mind diff. rounding!
+    if (arcPValue > 0) { // add P parameter
+      writeBlock( gMotionModal.format(clockwise ? 2 : 3), xOutput.format(x), yOutput.format(y), zOutput.format(z),
+                  iOutput.format(cx - start.x), jOutput.format(cy - start.y), arcPFormat.format(arcPValue), feedOutput.format(feed),
+                  " ; circleCount: " + circleCount);
+    } else { // omit P0
+      writeBlock( gMotionModal.format(clockwise ? 2 : 3), xOutput.format(x), yOutput.format(y), zOutput.format(z),
+                  iOutput.format(cx - start.x), jOutput.format(cy - start.y), feedOutput.format(feed));
     }
-  } else {
-    switch (getCircularPlane()) {
-    case PLANE_XY:
-      // writeComment("circularSweep " + toDeg( getCircularSweep())) // start Versuch/Recherche mit multiple "full helical circles"
-      forceCircular(getCircularPlane());
-      writeBlock(gPlaneModal.format(17));
-      writeBlock(gMotionModal.format(clockwise ? 2 : 3), xOutput.format(x), yOutput.format(y), zOutput.format(z), iOutput.format(cx - start.x), jOutput.format(cy - start.y), feedOutput.format(feed));
-      break;
-    case PLANE_ZX:
-      forceCircular(getCircularPlane());
-      writeBlock(gPlaneModal.format(18));
-      writeBlock(gMotionModal.format(clockwise ? 2 : 3), xOutput.format(x), yOutput.format(y), zOutput.format(z), iOutput.format(cx - start.x), kOutput.format(cz - start.z), feedOutput.format(feed));
-      break;
-    case PLANE_YZ:
-      forceCircular(getCircularPlane());
-      writeBlock(gPlaneModal.format(19));
-      writeBlock(gMotionModal.format(clockwise ? 2 : 3), xOutput.format(x), yOutput.format(y), zOutput.format(z), jOutput.format(cy - start.y), kOutput.format(cz - start.z), feedOutput.format(feed));
-      break;
-    default:
-      linearize(tolerance);
+    break;
+
+  case PLANE_ZX:
+    writeBlock(gPlaneModal.format(18));
+    if(xOutput.format(x) == "" && yOutput.format(z) == "") {
+      isFullRot = true;
+    } else {
+      isFullRot = false;
+      xOutput.reset();
+      zOutput.reset();
     }
+    arcPValue = (isFullRot ? Math.round(circleCount) - 1 : Math.floor(circleCount))
+    if (arcPValue > 0) {
+      writeBlock( gMotionModal.format(clockwise ? 2 : 3), xOutput.format(x), yOutput.format(y), zOutput.format(z),
+                  iOutput.format(cx - start.x), kOutput.format(cz - start.z), arcPFormat.format(arcPValue), feedOutput.format(feed),
+                  " ; circleCount: " + circleCount);
+    } else {
+      writeBlock( gMotionModal.format(clockwise ? 2 : 3), xOutput.format(x), yOutput.format(y), zOutput.format(z),
+                  iOutput.format(cx - start.x), kOutput.format(cz - start.z), feedOutput.format(feed));
+    }
+    break;
+  case PLANE_YZ:
+    writeBlock(gPlaneModal.format(19));
+    if(xOutput.format(y) == "" && yOutput.format(z) == "") {
+      isFullRot = true;
+    } else {
+      isFullRot = false;
+      yOutput.reset();
+      zOutput.reset();
+    }
+    arcPValue = (isFullRot ? Math.round(circleCount) - 1 : Math.floor(circleCount))
+    if (arcPValue > 0) {
+      writeBlock( gMotionModal.format(clockwise ? 2 : 3), xOutput.format(x), yOutput.format(y), zOutput.format(z),
+                  jOutput.format(cy - start.y), kOutput.format(cz - start.z), arcPFormat.format(arcPValue), feedOutput.format(feed),
+                  " ; circleCount: " + circleCount);
+    } else {
+      writeBlock( gMotionModal.format(clockwise ? 2 : 3), xOutput.format(x), yOutput.format(y), zOutput.format(z),
+                  jOutput.format(cy - start.y), kOutput.format(cz - start.z), feedOutput.format(feed));
+    }
+    break;
+  default: // unsupported plane
+    linearize(tolerance);
   }
 }
 
@@ -573,7 +587,7 @@ function setCoolant(coolant) {
       writeBlock(coolantCodes.join(getWordSeparator()));
     } else {
       for (var c in coolantCodes) {
-        writeBlock(coolantCodes[c]);
+        writeBlock(coolantCodes[c], " ; coolant");
       }
     }
     return undefined;
@@ -660,7 +674,7 @@ var mapCommand = {
 function onCommand(command) {
   switch (command) {
   case COMMAND_STOP:
-    writeBlock(mFormat.format(0));
+    writeBlock(mFormat.format(0), " ; wait for user");
     forceSpindleSpeed = true;
     forceCoolant = true;
     return;
@@ -680,7 +694,12 @@ function onCommand(command) {
   var stringId = getCommandStringId(command);
   var mcode = mapCommand[stringId];
   if (mcode != undefined) {
-    writeBlock(mFormat.format(mcode));
+    if (mcode == mapCommand[getCommandStringId(COMMAND_STOP_SPINDLE)]) {
+      setCoolant(COOLANT_OFF);
+      writeBlock(mFormat.format(mcode), " ; spindle stop");
+    } else {
+      writeBlock(mFormat.format(mcode));
+    }
   } else {
     onUnsupportedCommand(command);
   }
@@ -690,7 +709,7 @@ function onSectionEnd() {
   if (!isLastSection() && (getNextSection().getTool().coolant != tool.coolant)) {
     setCoolant(COOLANT_OFF);
   }
-  forceAny();
+  forceXYZF();
 }
 
 /** Output block to do safe retract and/or move to home position. */
