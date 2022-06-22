@@ -11,10 +11,10 @@
   FORKID {52F83774-5A80-4F12-8693-4B55AAF8C614}
 */
 
-description = "PP for Marlin 2.x";
+description = "PP for Marlin 2.x in CNC config";
 vendor = "Dominic";
 // vendorUrl = "";
-longDescription = "Generic milling post mixed from Estlcam & grbl by Dominic.";
+longDescription = "Generic milling post for Marlin 2.x fw mixed and improved from Estlcam & grbl by Dominic.";
 
 legal = "Copyright (C) 2012-2022 by Autodesk, Inc.";
 certificationLevel = 2;
